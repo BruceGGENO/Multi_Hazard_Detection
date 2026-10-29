@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email text UNIQUE NOT NULL, name text NOT NULL, password_hash text NOT NULL, role text NOT NULL CHECK (role IN ('National Command Center Admin','District Disaster Officer','Field Responder','Citizen')), district text, CHECK (role = 'National Command Center Admin' OR district IS NOT NULL));
+CREATE TABLE IF NOT EXISTS sessions (token_hash text PRIMARY KEY, user_id uuid REFERENCES users(id) ON DELETE CASCADE, expires_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS login_attempts (email text PRIMARY KEY, attempts int NOT NULL DEFAULT 0, reset_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS records (id uuid PRIMARY KEY, kind text NOT NULL, district text NOT NULL, data jsonb NOT NULL, user_id uuid REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS records_scope ON records(kind,district,created_at DESC);
+CREATE TABLE IF NOT EXISTS contacts (id uuid PRIMARY KEY, district text NOT NULL, phone text NOT NULL CHECK (phone ~ '^\+2507[0-9]{8}$'), consented boolean NOT NULL DEFAULT false, UNIQUE(district,phone));
+CREATE TABLE IF NOT EXISTS sms (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id), district text NOT NULL, phone text NOT NULL, body text NOT NULL, status text NOT NULL, provider_id text, error text, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS sms_batches (id uuid PRIMARY KEY, user_id uuid REFERENCES users(id), created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS record_reviews (record_id uuid PRIMARY KEY REFERENCES records(id), reviewer_id uuid NOT NULL REFERENCES users(id), decision text NOT NULL CHECK(decision IN ('verified','rejected')), reason text NOT NULL, reviewed_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS incident_dispatches (id uuid PRIMARY KEY, record_id uuid UNIQUE NOT NULL REFERENCES records(id), district text NOT NULL, destination text NOT NULL DEFAULT 'command-center', created_at timestamptz NOT NULL DEFAULT now());
