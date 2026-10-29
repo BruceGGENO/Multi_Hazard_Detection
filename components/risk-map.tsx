@@ -19,9 +19,8 @@ export default function RiskMap({boundaries,incidents=[],onSelect,onLocation,dra
       if(disposed||!container.current)return;
       const m=L.map(container.current,{scrollWheelZoom:false}).setView([-1.94,29.87],8);map.current=m;
       const street=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',maxZoom:19});
-      const satellite=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles &copy; Esri, Maxar, Earthstar Geographics, GIS User Community',maxZoom:19});
-      [street,satellite].forEach(layer=>layer.on('tileerror',()=>setError('Some map tiles could not load. Check connectivity or switch the base layer.')));
-      street.addTo(m);L.control.layers({'OpenStreetMap':street,'Satellite':satellite}).addTo(m);
+      street.on('tileerror',()=>setError('OpenStreetMap tiles unavailable. Incident flags remain interactive; internet is needed for the basemap.'));
+      street.addTo(m);
       overlays.current=L.layerGroup().addTo(m);
       m.on('click',(e:Leaflet.LeafletMouseEvent)=>location.current?.(e.latlng.lat,e.latlng.lng));
       setReady(true);
@@ -52,6 +51,7 @@ export default function RiskMap({boundaries,incidents=[],onSelect,onLocation,dra
         const title=[data.hazardType??'Hazard',data.severity??'Unspecified severity',incident.district,statusLabel(data)].join(' · ');
         const tooltip=document.createElement('div');tooltip.className='incident-tooltip';
         [data.hazardType??'Hazard',`${data.severity??'Unspecified'} · ${incident.district}`,new Date(data.observedAt??incident.created_at).toLocaleString(),statusLabel(data)].forEach(text=>{const line=document.createElement('div');line.textContent=text;tooltip.appendChild(line);});
+        if(data.prediction){const line=document.createElement('div');line.textContent=`${data.prediction.probability.toFixed(2)}% · ${data.prediction.riskLevel}`;tooltip.appendChild(line);}
         const icon=L.divIcon({className:'incident-flag',html:symbol,iconSize:[30,30],iconAnchor:[15,15]});
         let marker=flags.current.get(incident.id);
         if(!marker){

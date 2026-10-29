@@ -6,6 +6,7 @@ export type IncidentData = {
   observedAt?: string; hazardType?: string; severity?: Severity; latitude?: number; longitude?: number;
   sector?: string; cell?: string; verification?: 'pending' | 'unverified' | 'verified' | 'rejected';
   reviewedAt?: string; reviewedBy?: string; reviewReason?: string; dispatchedAt?: string;
+  prediction?: import('./hazard').HazardPrediction;
 };
 export type RecordRow = { id: string; kind: string; district: string; data: IncidentData; created_at: string; isOwner: boolean };
 export function isIncident(r: Pick<RecordRow, 'kind' | 'data'>) { return ['report', 'warning'].includes(r.kind) || (r.kind === 'telemetry' && !!r.data.hazardType); }

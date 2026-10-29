@@ -1,9 +1,10 @@
+import { localDatabaseUrl } from '../lib/local-only.mjs';
 import { Pool } from 'pg';
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto';
 import { prompt, newPassword } from './prompts.mjs';
 
-const roles = ['National Command Center Admin', 'District Disaster Officer', 'Field Responder', 'Citizen'];
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000 });
+const roles = ['National Command Center Admin', 'District Disaster Officer', 'Field Responder', 'Citizen', 'CHW'];
+const pool = new Pool({ connectionString: localDatabaseUrl(process.env.DATABASE_URL), connectionTimeoutMillis: 5000 });
 const passwordHash = password => { const salt = randomBytes(16).toString('hex'); return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`; };
 try {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is missing. Run npm run db:init first.');
@@ -18,7 +19,7 @@ try {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 || !name || name.length > 200) throw new Error('Enter a valid email and a name (maximum 200 characters).');
     roles.forEach((role, index) => console.log(`${index + 1}. ${role}`));
     const choice = await prompt('Role number', { defaultValue: '1' });
-    if (!/^[1-4]$/.test(choice)) throw new Error('Choose a role from 1 to 4.');
+    if (!/^[1-5]$/.test(choice)) throw new Error('Choose a role from 1 to 5.');
     const role = roles[Number(choice) - 1];
     const district = role === roles[0] ? null : (await prompt('Assigned district (e.g. Nyabihu)')).trim();
     if (role !== roles[0] && (!district || district.length > 80)) throw new Error('A district assignment is required (maximum 80 characters).');

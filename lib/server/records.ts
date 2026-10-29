@@ -9,6 +9,6 @@ export async function readRecords(u: User) {
       ($4::boolean AND (kind IN ('resource','recovery') OR (kind='telemetry' AND NOT (data ? 'hazardType')))))
     ORDER BY created_at DESC,id DESC LIMIT 1000`,
     [u.role === 'National Command Center Admin' ? null : u.district,
-      ['National Command Center Admin', 'District Disaster Officer'].includes(u.role), u.id, u.role === 'Field Responder']);
+      ['National Command Center Admin', 'District Disaster Officer'].includes(u.role), u.id, ['Field Responder', 'CHW'].includes(u.role)]);
   return result.rows;
 }

@@ -28,7 +28,7 @@ DATABASE_URL="postgresql://rwanda_response_app:GENERATED_PASSWORD@localhost:5432
 APP_ORIGIN="http://localhost:3000"
 ```
 
-The generated database password is a service credential for the app, not a dashboard user's password. Keep .env.local private. For a remote database, configure its provider's TLS requirements instead of using the local initializer.
+The generated database password is a service credential for the app, not a dashboard user's password. Keep .env.local private. This edition rejects remote databases; use loopback PostgreSQL only.
 
 ## 2. Verify the tables and connection
 
@@ -60,7 +60,7 @@ npm.cmd run users:create
 
 Enter the login email, full name and role number. Choose 1 for the first National Command Center Admin. Other roles require an exact district assignment such as Nyabihu; use consistent spelling across users, contacts and records. Enter and confirm a password of 14–256 characters. Passwords are hidden and stored only as salted scrypt hashes. Repeat this command for each additional user.
 
-These terminal commands require access to the application's database credentials and are intended for trusted account administrators. They are not public registration endpoints.
+These terminal commands require access to the application's database credentials and are intended for trusted account administrators. They are not public registration endpoints. Role 5 is CHW (Community Health Worker): district-scoped submission, tracking and field-data access without review or dispatch privileges. Existing databases require scripts/roles.sql to be executed by the users table owner before creating a CHW.
 
 ## 4. List account details or reset a forgotten password
 
@@ -87,7 +87,7 @@ Do not manually store plaintext passwords or put the postgres administrator conn
 npm.cmd run dev
 ```
 
-Open http://localhost:3000 and use the email and password you entered in users:create. Restart the Next.js server after changing .env.local. If you change the local port, update APP_ORIGIN to the exact origin including the port. A production build expects HTTPS for Secure session cookies; use the development server for local HTTP testing.
+Open http://localhost:3000 and use the email and password you entered in users:create. Restart Next.js after changing .env.local. If you change the local port, update APP_ORIGIN to the exact loopback origin including the port. Both dev and production-style local builds support HTTP on loopback; HTTPS origins enable Secure cookies. Use the npm launch commands to retain network guards.
 
 ## Troubleshooting
 

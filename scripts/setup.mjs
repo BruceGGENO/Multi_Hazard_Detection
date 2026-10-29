@@ -1,7 +1,8 @@
+import { localDatabaseUrl } from '../lib/local-only.mjs';
 import { Pool } from 'pg';
 import { readFile } from 'node:fs/promises';
 import { randomUUID, randomBytes, scryptSync } from 'node:crypto';
-const pool=new Pool({connectionString:process.env.DATABASE_URL});
+const pool=new Pool({connectionString:localDatabaseUrl(process.env.DATABASE_URL)});
 try {
  if(!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
  await pool.query(await readFile(new URL('./schema.sql',import.meta.url),'utf8'));

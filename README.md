@@ -1,66 +1,66 @@
-# Rwanda Response Hub
+# Rwanda Response Hub: local hackathon edition
 
-Next.js server application with PostgreSQL persistence, role-scoped operations and Twilio SMS. Requires Node.js 22+ and PostgreSQL; static export is no longer supported.
+This edition runs Next.js, PostgreSQL and the Python model on existing local hardware. SMS is permanently simulated, and only OpenStreetMap browser tiles remain external. No paid gateway, satellite layer, hosted model, external weather feed or cloud storage integration remains.
 
 ## Setup
 
-For local PostgreSQL initialization and account management, follow [POSTGRES_SETUP.md](POSTGRES_SETUP.md). Start with `npm run db:init`, then `npm run db:check` and `npm run users:create`. List emails/roles with `npm run users:list`; reset passwords with `npm run users:reset`. Existing passwords cannot be retrieved.
+- Install Node.js 22+, PostgreSQL and Python 3.11+. Run npm.cmd ci and install backend/requirements.txt into .venv. Initial dependency downloads require internet.
+- Follow POSTGRES_SETUP.md for local initialization and account creation.
+- Existing databases: run npm.cmd run db:migrate. If ownership blocks migration, execute scripts/verification-admin.sql and scripts/roles.sql as postgres in pgAdmin against the configured database. Users and reports are preserved; CHW requires the role migration.
+- Configure .env.local with a loopback DATABASE_URL, APP_ORIGIN=http://localhost:3000, HAZARD_SERVICE_URL=http://127.0.0.1:8000, and a random HAZARD_API_KEY with at least 32 characters. This key authenticates the local service and has no billing relationship.
+- Set the same key privately in the Python process environment, then run:
+  .venv/Scripts/python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+- In another terminal run npm.cmd run dev and open http://localhost:3000. For a production build run npm.cmd run build then npm.cmd start. Use these launchers so loopback guards and telemetry suppression load before Next.js.
 
-1. Run `npm install`.
-2. Copy `.env.example` to `.env.local`. Set DATABASE_URL, APP_ORIGIN (the exact public origin, e.g. https://response.example.rw), and Twilio credentials plus an approved sender.
-3. Run `node --env-file=.env.local scripts/setup.mjs` to apply the schema.
-4. Set USER_EMAIL, USER_PASSWORD (14+ characters), USER_NAME, USER_ROLE and USER_DISTRICT in your shell and rerun setup to provision an account. Role defaults to National Command Center Admin. All other roles require a district. Clear provisioning variables afterwards. There are no default accounts.
-5. Run `npm run dev`, or `npm run build` and `npm start`. Production requires HTTPS for Secure session cookies.
+## Permanent mock SMS
 
-Roles: National Command Center Admin, District Disaster Officer, Field Responder, Citizen. Sessions use HttpOnly, SameSite cookies, expire after 12 hours, are hashed in PostgreSQL and revoked on logout. Login attempts are limited per account. Configure IP limits and request-size limits at ingress; preserve public host/protocol for Origin checks.
+Only admins/officers can simulate alerts within their jurisdiction. POST /api/sms accepts requestId (UUID v4), district, message and phones. Recipients use +2507XXXXXXXX; blank selects consented local contacts. Limits remain 50 recipients per batch and five batches per operator per 15 minutes.
 
-## Persistent data API
+The handler contains no HTTP calls, provider polling, gateway credentials or live-mode switch. Batch and message records commit atomically to local PostgreSQL with status simulated. New simulations display "Simulated — no message sent." Replayed IDs return 409. Historical statuses are preserved. Incident approval publishes to the local command-center ledger independently of mock SMS.
 
-All endpoints require session cookies. Mutations require a matching Origin header. GET /api/records returns the latest 1,000 records in scope. GET /api/records/stream pushes changed snapshots using server-sent events, checking the database and session every three seconds. Clients reconnect automatically and fall back to a 30-second refresh. Disable proxy buffering for this route and use a host that supports long-lived responses.
+## Security and network boundary
 
-POST /api/records accepts {kind,district,data}. Kinds: report, telemetry, warning, resource, boundary, recovery. All data objects need a detail string (maximum 2,000 characters). Reports and warnings require hazardType, severity (low/moderate/high/critical), numeric latitude (-90–90) and longitude (-180–180). Optional sector and cell names are accepted. Telemetry requires coordinates, rainfall (nonnegative), saturation (0–100), and observedAt (ISO timestamp); include hazardType and severity when the source detects a hazard. Boundary needs polygon with at least three [latitude,longitude] pairs. Import verified boundaries: none are bundled. Polygon rendering currently supports one exterior ring per district; extend to GeoJSON for multipolygons and holes.
+- npm launch commands bind Next.js to 127.0.0.1 and preload lib/network-guard.mjs, rejecting non-loopback TCP/TLS. Telemetry is disabled before startup and in next.config.ts.
+- Database URLs accept loopback PostgreSQL only and reject connection overrides. Admin scripts use the same validation. The narrow search_path override exists for isolated integration tests.
+- Model URLs permit only loopback HTTP port 8000, fixed paths and no credentials/query strings. Redirects are rejected and localhost is pinned to 127.0.0.1.
+- Python blocks external outbound sockets and external DNS resolution. Bind FastAPI to loopback.
+- Browser CSP permits same-origin connections and OpenStreetMap images. Framing, external scripts/forms and production eval are blocked. Inline scripts/styles remain for Next.js and Leaflet.
+- Sessions are hashed, HttpOnly, SameSite=Strict, expire after 12 hours and revoke on logout. Secure cookies apply for HTTPS APP_ORIGIN; loopback HTTP works locally. Mutations require an Origin matching the actual loopback Host and port; localhost aliases and fallback server ports work without changing APP_ORIGIN. External and cross-port origins remain blocked. Login is rate limited.
+- These application guards are defense in depth, not an OS firewall. For protection against arbitrary changed code/child processes, configure host firewall egress restrictions while preserving loopback. Do not publicly expose or tunnel local servers.
+- Software cannot cancel existing subscriptions, revoke credentials outside this checkout, or eliminate hardware, electricity, internet or unrelated cloud bills. Package downloads and browser/OS services are outside the server boundary.
 
-Admins can read/write nationally. District officers can read/write within their district. Responders and citizens can submit pending district reports and see their own review status. Pending and rejected third-party incidents are private to review authorities. Verified incidents (including sensor hazards) and boundaries are visible within the assigned district; responders additionally read ordinary telemetry, resources and recovery. Roles/assignments are provisioned administratively. Resource and recovery records are descriptive; structured logistics editing and external sensor adapters remain follow-up work.
+## Preserved workflow
 
-Example telemetry body:
+Role numbers: 1 National Command Center Admin, 2 District Disaster Officer, 3 Field Responder, 4 Citizen, 5 CHW. Use npm.cmd run users:create, users:list and users:reset. All except national admins require a district. CHWs have field-data/submission/tracking access without review or mock-dispatch privileges.
 
-```json
-{"kind":"telemetry","district":"Nyabihu","data":{"detail":"Station observation","rainfall":12.4,"saturation":58,"observedAt":"2026-10-28T10:00:00Z","latitude":-1.65,"longitude":29.51}}
-```
+District privacy, independent report reviews, atomic review/audit/dispatch records, pulsing geolocated flags and live local updates are retained. No self-approval or repeated terminal review is allowed. SSE checks records and sessions every three seconds with a 30-second fallback refresh. No hosted realtime provider is required.
 
-No synthetic readings, population totals, evacuation routes or readiness scores are shown. Missing data has explicit empty states.
+Manual observations and local sensor submissions remain. No external feed adapter is bundled. Telemetry may include data.modelFeatures for local predictions; rainfall, saturation, observedAt and coordinates remain required.
 
-## Live flags and verification
+## Model
 
-Apply the database additions before reviewing incidents: `npm run db:migrate`. In this installation the existing tables are owned by postgres and the application login lacks REFERENCES privileges. Connect in pgAdmin as postgres to rwanda_response and execute [scripts/verification-admin.sql](scripts/verification-admin.sql) instead. It creates record_reviews and incident_dispatches and grants the app access; existing accounts and records are preserved.
+The local Random Forest trains once per process on data/Complete-data.csv. All twelve encoded features are required: Aspect, Curvature, Earthquake, Elevation, Flow, Lithology, NDVI, NDWI, Plan, Precipitation, Profile and Slope. Raw units need a validated encoding dictionary. Invalid/unobserved codes are rejected.
 
-Reports, warnings and hazardous telemetry start Pending Review regardless of any client-supplied verification fields. Located incidents render severity-colored pulsing flags, safe-text tooltips and a detail drawer. Rejected incidents are removed from the map. Select coordinates using the report map, GPS or numeric inputs. Missing legacy coordinates are never guessed; legacy reports can be rejected with a request to resubmit, but cannot be approved without hazard metadata and location.
+Authenticated /model returns feature codes, fingerprint and holdout AUC/Brier metrics. POST /predict-hazard returns probability (0–100), riskLevel, modelVersion and features. Bands: below 30% Low Risk, 30% to below 70% Elevated, 70%+ High Risk. Duplicate vectors are deduplicated and conflicting labels excluded/count reported before a fixed stratified holdout. Geographic validity and operational calibration still require independent validation.
 
-National admins and district officers see a Verification Queue within their authority. Independent review is required: users cannot review their own submissions. PATCH /api/records accepts `{id,decision,reason}` with decision verified or rejected. Rejection requires a reason. Reviews lock the incident row and atomically persist the decision and audit record. Approval additionally inserts exactly one command-center dispatch record. Concurrent/repeated decisions return 409; terminal decisions cannot be silently overwritten.
+Officers publish located predictions into the pending review queue. The server recomputes scores rather than trusting client probabilities.
 
-Reporters see Pending Review, Verified & Dispatched, or Rejected badges and review notes through the authenticated live stream. Dispatched means published to the command-center operational feed and dispatch ledger. SMS sending and confirmed handset delivery remain separate actions in Communications; approval never automatically sends SMS.
+## Maps and offline behavior
 
-For automatic sensor flags, optionally set HAZARD_RAINFALL_THRESHOLD_MM in .env.local to your locally validated threshold and restart the server. Threshold-crossing telemetry is flagged as pending Heavy precipitation with high severity unless the source supplies hazard metadata. No operational threshold is assumed by default. Sensor adapters still need to submit authenticated records; a station's coordinates must be supplied with every observation.
+Only tile.openstreetmap.org is used, with attribution. Browser basemap tiles need internet, follow the public usage policy and have no SLA. Do not bulk-download public tiles for offline use. If tiles are unavailable, flags and coordinate selection remain interactive over an empty basemap. No satellite layer remains.
 
-## Live SMS
+## Local backups
 
-POST /api/sms accepts {requestId,district,message,phones}. Only admins and district officers can dispatch, within their scope. requestId is a UUID v4 persisted before sending; reuse returns 409 without resending. phones is a comma/space-separated list of +2507XXXXXXXX numbers; blank selects consented contacts from the contacts table. Import your verified directory administratively. Limit: 50 recipients per batch, five batches per operator per 15 minutes.
+Run npm.cmd run db:backup. pg_dump writes a custom-format archive under the ignored backups/ directory through loopback PostgreSQL; nothing is uploaded. Redirected backup directories are rejected and partial failures removed. PostgreSQL 18's standard Windows executable is detected; otherwise pg_dump must be on PATH.
 
-Credentials remain server-side. Twilio trial restrictions, sender approval, country permissions and credit apply. Each attempt is persisted before calling the gateway. GET /api/sms polls nonterminal provider statuses and returns the latest 100 logs. Queued/sent never means confirmed delivery. Timeouts are unknown: verify provider logs before retrying. Server interruption can leave submitting records requiring reconciliation.
+Backups include sensitive data. Keep the checkout/backups on an access-controlled local volume outside cloud-sync/network folders. Backups are manual, not scheduled. Test restoration into a separate local database before relying on them; never casually overwrite the active database.
 
-Dispatch runs synchronously. Deploy to a long-running Node host with sufficient request timeouts. Durable queue workers, automated reconciliation, delivery monitoring and high-volume load testing are required before safety-critical rollout. USSD and evacuation routing are not implemented.
+## Checks
 
-## Maps
+npm.cmd run typecheck
+npm.cmd run test:safety
+npm.cmd run build
+npm.cmd run test:workflow
+.venv/Scripts/python.exe -m pytest backend -q
 
-OpenStreetMap standard and Esri World Imagery are keyless selectable layers with attribution. OSM shared servers have a usage policy and no SLA: use compliant hosted/self-hosted tiles for sustained large-scale traffic. Esri terms apply. Internet is required.
-
-## Verification and deployment
-
-- `npx tsc --noEmit --incremental false`
-- `npm run build`
-- `npm run test:workflow` after building: real PostgreSQL/API integration tests in an isolated temporary schema, with temporary accounts and a dedicated server on port 3117. Requires a local PostgreSQL connection and CREATE SCHEMA permission. The schema is removed afterwards; existing users and reports are untouched. Tests cover authorization, privacy, coordinates, forgery resistance, live approval updates, concurrent decisions, rejection, legacy reports and automatic sensor flags. Tests never send SMS.
-- With the server running: `node --test scripts/api-smoke.mjs`. TEST_BASE_URL defaults to http://localhost:3000.
-
-Smoke tests cover anonymous access, cross-origin mutation rejection and malformed login. They do not verify PostgreSQL or real delivery. Before operational use, test all four roles across two districts, logout/expiration, restart persistence, verified boundaries and approved handsets in staging. Configure database TLS/backups, account administration, retention/access policies, ingress monitoring and independent resilience/security review.
-
-This is a server-backed integration foundation. Live operation requires database/account provisioning, gateway credentials, verified source integrations and deployment acceptance testing.
+Workflow tests use temporary local schemas/accounts, then remove them. They cover all five roles, login/logout, district privacy, reviews, concurrency, mock SMS persistence/replay protection and live revocation. CREATE SCHEMA permission is required. Safety tests verify endpoint/socket restrictions and gateway/map removal. Tests never send real SMS.

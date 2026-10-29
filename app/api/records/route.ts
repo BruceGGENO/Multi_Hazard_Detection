@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '@/lib/server/db';
 import { user, scope, origin, failure } from '@/lib/server/auth';
 import { readRecords } from '@/lib/server/records';
+import { predictHazard, validateMetrics } from '@/lib/server/hazard';
 import { hasCoordinates, isIncident, severities, type IncidentData } from '@/lib/incidents';
 export const runtime = 'nodejs';
 export async function GET() {
@@ -27,6 +28,13 @@ export async function POST(request: Request) {
     }
     if(data.latitude!==undefined||data.longitude!==undefined) { if(!hasCoordinates(data))throw new Error('400');clean.latitude=data.latitude;clean.longitude=data.longitude; }
     if(data.severity!==undefined) { if(!severities.includes(data.severity))throw new Error('400');clean.severity=data.severity; }
+    // Recompute on the trusted server; client probabilities and review fields are never accepted.
+    if(data.modelFeatures!==undefined) {
+      if(kind!=='telemetry'&&kind!=='warning')throw new Error('400');
+      clean.prediction=await predictHazard(validateMetrics(data.modelFeatures));
+      clean.hazardType='Landslide';
+      clean.severity=clean.prediction.riskLevel==='High Risk'?'high':clean.prediction.riskLevel==='Elevated'?'moderate':'low';
+    }
     // Only an explicitly configured, locally validated threshold enables automatic flagging.
     const threshold = Number(process.env.HAZARD_RAINFALL_THRESHOLD_MM);
     if(kind==='telemetry' && Number.isFinite(threshold) && threshold>0 && data.rainfall>=threshold) {

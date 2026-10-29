@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Pool } from 'pg';
-import { randomUUID, randomBytes, createHash } from 'node:crypto';
+import { randomUUID, randomBytes, createHash, scryptSync } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -21,13 +21,15 @@ test('live incident verification and district isolation', {timeout:120000}, asyn
     await control.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(await readFile(new URL('./schema.sql',import.meta.url),'utf8'));
     const accounts={};
-    for(const [key,role,district] of [['admin','National Command Center Admin',null],['officer','District Disaster Officer','Nyabihu'],['outsider','District Disaster Officer','Rusizi'],['citizen','Citizen','Nyabihu'],['neighbor','Citizen','Nyabihu'],['responder','Field Responder','Nyabihu']]){
+    for(const [key,role,district] of [['admin','National Command Center Admin',null],['officer','District Disaster Officer','Nyabihu'],['outsider','District Disaster Officer','Rusizi'],['citizen','Citizen','Nyabihu'],['neighbor','Citizen','Nyabihu'],['responder','Field Responder','Nyabihu'],['chw','CHW','Nyabihu']]){
       const id=randomUUID(),token=randomBytes(32).toString('hex');
-      await pool.query('INSERT INTO users(id,email,name,password_hash,role,district) VALUES($1,$2,$3,$4,$5,$6)',[id,`${key}@workflow.invalid`,key,'unused-test-hash',role,district]);
+      const salt=randomBytes(16).toString('hex');
+      const passwordHash=`${salt}:${scryptSync('test-login-password-only',salt,64).toString('hex')}`;
+      await pool.query('INSERT INTO users(id,email,name,password_hash,role,district) VALUES($1,$2,$3,$4,$5,$6)',[id,`${key}@workflow.invalid`,key,passwordHash,role,district]);
       await pool.query("INSERT INTO sessions VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(token).digest('hex'),id]);
       accounts[key]={id,token};
     }
-    server=spawn(process.execPath,['node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3117'],{cwd:process.cwd(),windowsHide:true,env:{...process.env,DATABASE_URL:databaseUrl.toString(),APP_ORIGIN:base,HAZARD_RAINFALL_THRESHOLD_MM:'160'},stdio:['ignore','pipe','pipe']});
+    server=spawn(process.execPath,['--import','./lib/network-guard.mjs','node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3117'],{cwd:process.cwd(),windowsHide:true,env:{...process.env,NEXT_TELEMETRY_DISABLED:'1',DATABASE_URL:databaseUrl.toString(),APP_ORIGIN:base,HAZARD_RAINFALL_THRESHOLD_MM:'160'},stdio:['ignore','pipe','pipe']});
     server.stdout.on('data',chunk=>{output+=chunk;});server.stderr.on('data',chunk=>{output+=chunk;});
     let ready=false;
     for(let i=0;i<60;i++){if(server.exitCode!==null)throw new Error('Test server exited; verify port 3117 is available.');if(output.includes('Ready in')){ready=true;break;}await delay(250);}
@@ -36,6 +38,39 @@ test('live incident verification and district isolation', {timeout:120000}, asyn
     const report=(detail='Workflow integration report')=>({kind:'report',district:'Nyabihu',data:{detail,hazardType:'Landslide',severity:'high',latitude:-1.65,longitude:29.51,sector:'Mukamira',cell:'Reported cell'}});
     const review=(id,decision='verified',reason='Reviewed evidence')=>({id,decision,reason});
     let id,rejectedId;
+    await t.test('password login creates a persistent secure session and logout revokes it',async()=>{
+      const login=await fetch(base+'/api/auth',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({email:'citizen@workflow.invalid',password:'test-login-password-only'})});
+      assert.equal(login.status,200);
+      const setCookie=login.headers.get('set-cookie');assert.match(setCookie,/HttpOnly/i);assert.match(setCookie,/SameSite=strict/i);assert.doesNotMatch(setCookie,/; Secure/i);
+      const cookie=setCookie.split(';')[0];
+      const profile=await fetch(base+'/api/auth',{headers:{Cookie:cookie}});assert.equal(profile.status,200);assert.equal((await profile.json()).user.id,accounts.citizen.id);
+      assert.equal((await fetch(base+'/api/auth',{method:'DELETE',headers:{Origin:base,Cookie:cookie}})).status,200);
+      assert.equal((await fetch(base+'/api/auth',{headers:{Cookie:cookie}})).status,401);
+    });
+    await t.test('prediction and SMS interfaces enforce operator authorization',async()=>{
+      for(const endpoint of ['predict-hazard','sms']){
+        for(const who of [null,'citizen','responder','chw']){
+          const response=await fetch(`${base}/api/${endpoint}`,{headers:who?{Cookie:`response_session=${accounts[who].token}`}:{}});
+          assert.equal(response.status,who?403:401);
+        }
+      }
+    });
+    await t.test('mock SMS persists locally with replay protection and district authorization',async()=>{
+      const body={requestId:randomUUID(),district:'Nyabihu',phones:'+250788000001, +250788000001, +250788000002',message:'Local simulation test'};
+      async function sms(who,payload=body){return fetch(base+'/api/sms',{method:'POST',headers:{Origin:base,Cookie:`response_session=${accounts[who].token}`,'Content-Type':'application/json'},body:JSON.stringify(payload)});}
+      for(const who of ['citizen','responder','chw','outsider'])assert.equal((await sms(who)).status,403);
+      assert.equal((await sms('officer',null)).status,400);
+      const response=await sms('officer');assert.equal(response.status,201);
+      const result=await response.json();assert.equal(result.mode,'mock');assert.equal(result.label,'Simulated — no message sent.');assert.equal(result.results.length,2);
+      for(const entry of result.results){const row=(await pool.query('SELECT * FROM sms WHERE id=$1',[entry.id])).rows[0];assert.equal(row.status,'simulated');assert.equal(row.provider_id,null);assert.equal(row.body,body.message);}
+      assert.equal((await sms('officer')).status,409);
+      const logs=await fetch(base+'/api/sms',{headers:{Cookie:`response_session=${accounts.officer.token}`}});assert.equal(logs.status,200);assert.equal((await logs.json()).length,2);
+    });
+    await t.test('CHW can submit and track a report without verification privileges',async()=>{
+      const submitted=await request('chw','POST',report('CHW observation'));assert.equal(submitted.status,201);
+      assert.ok((await request('chw')).data.some(row=>row.id===submitted.data.id&&row.isOwner));
+      assert.equal((await request('chw','PATCH',review(submitted.data.id))).status,403);
+    });
     await t.test('submission validation and server-owned pending state',async()=>{
       const invalid=report();invalid.data.latitude=91;assert.equal((await request('citizen','POST',invalid)).status,400);
       const missing=report();delete missing.data.longitude;assert.equal((await request('citizen','POST',missing)).status,400);

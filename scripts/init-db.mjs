@@ -1,3 +1,4 @@
+import { localDatabaseUrl } from '../lib/local-only.mjs';
 import { Pool } from 'pg';
 import { randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -13,7 +14,9 @@ try {
   let contents = '';
   try { contents = await readFile(envPath, 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }
   const existing = parseEnv(contents);
-  const host = await prompt('PostgreSQL host', { defaultValue: 'localhost' });
+  const enteredHost = await prompt('PostgreSQL host', { defaultValue: 'localhost' });
+  if (!['localhost','127.0.0.1','::1'].includes(enteredHost)) throw new Error('Only a loopback database host is allowed.');
+  const host = enteredHost === 'localhost' ? '127.0.0.1' : enteredHost;
   const portText = await prompt('PostgreSQL port', { defaultValue: '5432' });
   const port = Number(portText);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port.');
@@ -29,7 +32,7 @@ try {
   const found = await admin.query('SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname=$1', [database]);
   if (found.rowCount && found.rows[0].owner !== appUser) throw new Error('Existing database has another owner. Choose a new database; no ownership changes were made.');
   const oldUrl = existing.DATABASE_URL ? new URL(existing.DATABASE_URL) : null;
-  const reusable = oldUrl && decodeURIComponent(oldUrl.username) === appUser && oldUrl.hostname === host && Number(oldUrl.port || 5432) === port && decodeURIComponent(oldUrl.pathname.slice(1)) === database;
+  const reusable = oldUrl && decodeURIComponent(oldUrl.username) === appUser && (oldUrl.hostname === 'localhost' ? '127.0.0.1' : oldUrl.hostname) === host && Number(oldUrl.port || 5432) === port && decodeURIComponent(oldUrl.pathname.slice(1)) === database;
   if (role.rowCount && !reusable) throw new Error('That database login already exists and is not configured in .env.local. Choose a new login name; its existing password will not be changed.');
   const appPassword = reusable ? decodeURIComponent(oldUrl.password) : randomBytes(32).toString('hex');
   if (!role.rowCount) {
@@ -50,7 +53,7 @@ try {
   }
   // Persist generated credentials before connecting so a subsequent run can reuse them.
   await writeFile(envPath, contents.trimStart(), { mode: 0o600 });
-  app = new Pool({ connectionString: connection.toString(), connectionTimeoutMillis: 5000 });
+  app = new Pool({ connectionString: localDatabaseUrl(connection.toString()), connectionTimeoutMillis: 5000 });
   const client = await app.connect();
   try {
     await client.query('BEGIN');
