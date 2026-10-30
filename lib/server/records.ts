@@ -1,5 +1,7 @@
 import { db, type User } from './db';
+import { databaseUser } from './database-user';
 export async function readRecords(u: User) {
+  u = await databaseUser(u);
   // Owners retain access to submissions within their assignment. Unreviewed third-party reports
   // are visible only to the assigned review authority, never to other citizens.
   const result = await db.query(`SELECT id,kind,district,data,created_at,(user_id=$3) AS "isOwner" FROM records

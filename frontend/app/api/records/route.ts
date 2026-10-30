@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { db } from '@/lib/server/db';
 import { user, scope, origin, failure } from '@/lib/server/auth';
 import { readRecords } from '@/lib/server/records';
+import { databaseUser } from '@/lib/server/database-user';
 import { predictHazard, validateMetrics } from '@/lib/server/hazard';
 import { hasCoordinates, isIncident, severities, type IncidentData } from '@/lib/incidents';
 export const runtime = 'nodejs';
@@ -43,7 +44,8 @@ export async function POST(request: Request) {
     const incident = isIncident({kind,data:clean});
     if((incident||kind==='telemetry')&&!hasCoordinates(clean))throw new Error('400');
     if(incident) { if(!clean.hazardType||!clean.severity)throw new Error('400');clean.verification='pending'; }
-    const result=await db.query('INSERT INTO records(id,kind,district,data,user_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[randomUUID(),kind,district,JSON.stringify(clean),u.id]);
+    const owner = await databaseUser(u);
+    const result=await db.query('INSERT INTO records(id,kind,district,data,user_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[randomUUID(),kind,district,JSON.stringify(clean),owner.id]);
     return Response.json(result.rows[0],{status:201});
   } catch(e) { return failure(e); }
 }
@@ -55,19 +57,20 @@ export async function PATCH(request:Request) {
     if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new Error('400');
     const {id,decision,reason}=payload;
     if(typeof id!=='string'||!(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i).test(id)||!['verified','rejected'].includes(decision)||typeof reason!=='string'||reason.trim().length>1000||(decision==='rejected'&&!reason.trim()))throw new Error('400');
+    const reviewer = await databaseUser(u);
     const client=await db.connect();
     try {
       await client.query('BEGIN');
       const found=await client.query('SELECT * FROM records WHERE id=$1 FOR UPDATE',[id]);
       const record=found.rows[0]; if(!record)throw new Error('404');
       scope(u,record.district);
-      if(record.user_id===u.id)throw new Error('403');
+      if(record.user_id===reviewer.id)throw new Error('403');
       if(!isIncident(record))throw new Error('400');
       if(['verified','rejected'].includes(record.data.verification))throw new Error('409');
       if(decision==='verified'&&(!hasCoordinates(record.data)||!record.data.hazardType||!severities.includes(record.data.severity)))throw new Error('400');
       const time=new Date().toISOString();
-      const updated={...record.data,verification:decision,reviewedBy:u.id,reviewedAt:time,reviewReason:reason.trim(),...(decision==='verified'?{dispatchedAt:time}:{})};
-      await client.query('INSERT INTO record_reviews(record_id,reviewer_id,decision,reason) VALUES($1,$2,$3,$4)',[id,u.id,decision,reason.trim()]);
+      const updated={...record.data,verification:decision,reviewedBy:reviewer.id,reviewedAt:time,reviewReason:reason.trim(),...(decision==='verified'?{dispatchedAt:time}:{})};
+      await client.query('INSERT INTO record_reviews(record_id,reviewer_id,decision,reason) VALUES($1,$2,$3,$4)',[id,reviewer.id,decision,reason.trim()]);
       if(decision==='verified')await client.query('INSERT INTO incident_dispatches(id,record_id,district) VALUES($1,$2,$3)',[randomUUID(),id,record.district]);
       await client.query('UPDATE records SET data=$1 WHERE id=$2',[JSON.stringify(updated),id]);
       await client.query('COMMIT');return Response.json({id,data:updated});

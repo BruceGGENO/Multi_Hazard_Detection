@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '@/lib/server/db';
 import { user, scope, origin, failure } from '@/lib/server/auth';
+import { databaseUser } from '@/lib/server/database-user';
 export const runtime = 'nodejs';
 const label = 'Simulated — no message sent.';
 async function operator() {
   const u = await user();
   if (!['National Command Center Admin', 'District Disaster Officer'].includes(u.role)) throw new Error('403');
-  return u;
+  return databaseUser(u);
 }
 export async function GET() {
   try {

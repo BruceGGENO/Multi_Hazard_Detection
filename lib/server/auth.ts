@@ -27,6 +27,7 @@ export function origin(request: Request) {
 export function scope(u: User, district: string) { if (u.role !== 'National Command Center Admin' && u.district !== district) throw new Error('403'); }
 export function failure(e: unknown) {
  const message = e instanceof Error ? e.message : '';
+ if(message==='DATABASE_NOT_CONFIGURED')return Response.json({error:'Report storage is not configured. Set DATABASE_URL to the Neon PostgreSQL connection string with sslmode=require, then redeploy.'},{status:503});
  if(message==='AUTH_SESSION_SECRET_MISSING')return Response.json({error:'Demo sign-in is not configured. Set AUTH_SESSION_SECRET to a random value of at least 32 characters in the server environment, then restart or redeploy the app.'},{status:503});
  if(message==='ORIGIN_REJECTED')return Response.json({error:'Request origin rejected. Open the app directly at its own address and retry.'},{status:403});
  const status = e instanceof SyntaxError ? 400 : ['400','401','403','404','409','429','503'].includes(message) ? Number(message) : 503;
