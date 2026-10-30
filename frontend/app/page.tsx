@@ -2,6 +2,7 @@
 import dynamic from 'next/dynamic';
 import './prediction.css';
 import HazardPredictionPanel from '@/components/hazard-prediction';
+import CreateUser from '@/components/create-user';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, Radio, ShieldCheck, MapPin, LogOut } from 'lucide-react';
 import type { User } from '@/lib/server/db';
@@ -45,6 +46,7 @@ export default function Dashboard(){
 
  const telemetry=records.filter(r=>r.kind==='telemetry');const warnings=records.filter(r=>r.kind==='warning');
  return <div className="production-shell"><header className="topbar"><strong><ShieldCheck size={18}/> Rwanda Response Hub</strong><details className="profile"><summary>{user.name} ▾</summary><div className="profile-menu"><strong>{user.role}</strong><p>{user.district??'National · all districts'}</p><button className="button secondary" disabled={busy} onClick={()=>void action(async()=>{await api('/api/auth','DELETE');setUser(null);setRecords([]);setLogs([]);})}><LogOut size={14}/> Sign out</button></div></details></header><main className="production-main"><div className="page-heading"><div><div className="eyebrow">REPUBLIC OF RWANDA · DISASTER RESPONSE</div><h1>{user.role==='Citizen'?'Community safety':['Field Responder','CHW'].includes(user.role)?'Field response':'Command center'}</h1><p>{user.district??'National coordination'} · Authenticated operations</p></div><button className="button secondary" disabled={busy} onClick={()=>void action(async()=>{await load(user);setNotice('Records refreshed');})}>Refresh data</button></div>
+ {user.role==='National Command Center Admin'&&<CreateUser/>}
  {error&&<p role="alert" className="notice error">{error}</p>}{notice&&<p role="status" className="notice">{notice}</p>}
  <nav className="operations-tabs">{['overview','reports',...(operator?['prediction','verification','communications','resources','recovery']:[])].map(tab=><button key={tab} className={view===tab?'active':''} onClick={()=>setView(tab)}>{tab==='verification'?`Verification Queue (${pending.length})`:tab}</button>)}</nav>
  {view==='prediction'&&operator&&<HazardPredictionPanel district={user.district??district} locked={!!user.district} onSaved={()=>load(user)}/>}
