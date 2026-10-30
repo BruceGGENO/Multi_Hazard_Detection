@@ -29,7 +29,7 @@ test('live incident verification and district isolation', {timeout:120000}, asyn
       await pool.query("INSERT INTO sessions VALUES($1,$2,now()+interval '1 hour')",[createHash('sha256').update(token).digest('hex'),id]);
       accounts[key]={id,token};
     }
-    server=spawn(process.execPath,['--import','./lib/network-guard.mjs','node_modules/next/dist/bin/next','start','-H','127.0.0.1','-p','3117'],{cwd:process.cwd(),windowsHide:true,env:{...process.env,NEXT_TELEMETRY_DISABLED:'1',DATABASE_URL:databaseUrl.toString(),APP_ORIGIN:base,HAZARD_RAINFALL_THRESHOLD_MM:'160'},stdio:['ignore','pipe','pipe']});
+    server=spawn(process.execPath,['--import','./lib/network-guard.mjs','node_modules/next/dist/bin/next','start','frontend','-H','127.0.0.1','-p','3117'],{cwd:process.cwd(),windowsHide:true,env:{...process.env,NEXT_TELEMETRY_DISABLED:'1',DATABASE_URL:databaseUrl.toString(),APP_ORIGIN:base,HAZARD_RAINFALL_THRESHOLD_MM:'160'},stdio:['ignore','pipe','pipe']});
     server.stdout.on('data',chunk=>{output+=chunk;});server.stderr.on('data',chunk=>{output+=chunk;});
     let ready=false;
     for(let i=0;i<60;i++){if(server.exitCode!==null)throw new Error('Test server exited; verify port 3117 is available.');if(output.includes('Ready in')){ready=true;break;}await delay(250);}

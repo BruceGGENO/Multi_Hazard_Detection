@@ -26,9 +26,9 @@ test('runtime guard refuses external sockets before connection',()=>{
   assert.equal(result.status,0,result.stderr);
 });
 test('mock SMS contains no gateway or HTTP implementation and prediction rejects redirects',async()=>{
-  const sms=await readFile(new URL('../app/api/sms/route.ts',import.meta.url),'utf8');
+  const sms=await readFile(new URL('../frontend/app/api/sms/route.ts',import.meta.url),'utf8');
   assert.doesNotMatch(sms,/fetch\s*\(|https?:\/\/|twilio|axios|https\.request/i);
   assert.match(sms,/status: 'simulated'/);assert.match(sms,/Simulated — no message sent\./);
   const hazard=await readFile(new URL('../lib/server/hazard.ts',import.meta.url),'utf8');assert.match(hazard,/redirect:'error'/);
-  const map=await readFile(new URL('../components/risk-map.tsx',import.meta.url),'utf8');assert.doesNotMatch(map,/arcgisonline|cartocdn|mapbox/i);
+  const map=await readFile(new URL('../frontend/components/risk-map.tsx',import.meta.url),'utf8');assert.doesNotMatch(map,/arcgisonline|cartocdn|mapbox/i);
 });

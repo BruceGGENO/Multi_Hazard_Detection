@@ -1,7 +1,6 @@
 import { cookies } from 'next/headers';
 import { setTimeout } from 'node:timers/promises';
-import { db } from '@/lib/server/db';
-import { user, hash, failure } from '@/lib/server/auth';
+import { user, sessionUser, failure } from '@/lib/server/auth';
 import { readRecords } from '@/lib/server/records';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,9 +17,14 @@ export async function GET(request: Request) {
         try {
           while (!abort.signal.aborted) {
             // Re-check role, district assignment and revocation on every cycle.
-            const session = await db.query('SELECT u.id,u.name,u.role,u.district FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()', [hash(token)]);
-            if (!session.rows[0]) { controller.enqueue(encoder.encode('event: expired\ndata: {}\n\n')); break; }
-            const data = JSON.stringify(await readRecords(session.rows[0]));
+            let account;
+            try { account = await sessionUser(token); }
+            catch (error) {
+              if (!(error instanceof Error) || error.message !== '401') throw error;
+              controller.enqueue(encoder.encode('event: expired\ndata: {}\n\n'));
+              break;
+            }
+            const data = JSON.stringify(await readRecords(account));
             if (data !== previous) { controller.enqueue(encoder.encode(`data: ${data}\n\n`)); previous = data; }
             else controller.enqueue(encoder.encode(': heartbeat\n\n'));
             await setTimeout(3000, undefined, { signal: abort.signal });

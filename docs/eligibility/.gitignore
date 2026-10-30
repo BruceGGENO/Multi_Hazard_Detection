@@ -1,0 +1,4 @@
+# Only these two explanatory files may be tracked here.
+*
+!.gitignore
+!README.md

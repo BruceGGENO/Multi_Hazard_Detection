@@ -1,6 +1,8 @@
 import type { NextConfig } from 'next';
 process.env.NEXT_TELEMETRY_DISABLED = '1';
 const config: NextConfig = {
+  distDir: process.env.NODE_ENV === 'development' && /^\d+$/.test(process.env.LOCAL_NEXT_DEV_PORT ?? '')
+    ? `.next-dev/${process.env.LOCAL_NEXT_DEV_PORT}` : '.next',
   poweredByHeader: false,
   async headers() { return [{ source: '/:path*', headers: [
     { key: 'X-Content-Type-Options', value: 'nosniff' },
